@@ -1,0 +1,536 @@
+---
+title: "EST0133 - INTRODUÇÃO À MODELAGEM DE BIG DATA"
+author: "Jaylhane Nunes"
+date: "22/11/2021"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+header-includes:
+- \usepackage[portuguese]{babel}
+- \usepackage{float}
+- \floatplacement{figure}{H}
+- \usepackage{indentfirst}
+- \setlength\parindent{22pt}
+subtitle: Projeto I
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      warning = FALSE,
+                      message = FALSE,
+                      results = FALSE,
+                      dev = "png", 
+                      dpi = 500,
+                      fig.height = 3.5,
+                      fig.pos="h")
+options(knitr.kable.NA = '')
+
+```
+
+```{r librarys}
+
+library(factoextra)
+library(ggfortify)
+library(gt)
+library(hrbrthemes)
+library(kableExtra)
+library(NbClust)
+library(rvest)
+library(stringr)
+library(tidyverse)
+
+```
+
+```{r set_theme, echo=FALSE}
+
+theme_set(theme_ipsum()+
+            theme(
+              axis.title.y = element_text(size = 9),
+              axis.title.x = element_text(size = 9),
+              plot.title = element_text(size=12),
+              plot.subtitle = element_text(size=10)
+            )
+)
+
+```
+
+# Parte 1 - Clusterização
+
+## Questão 1
+
+```{r}
+
+fifa <- read.csv("fifa.csv")
+
+head(fifa)
+
+summary(fifa)
+
+```
+
+Como desejamos identificar padrões podemos remover as variáveis `id`, `club_number` e `national_number`, pois, elas não representam características que contribuem para análise, uma vez que os valores atribuídos nessas variáveis, para cada observação, são escolhidas ao acaso (de acordo com o site [Torcedores.com](https://www.torcedores.com/noticias/2017/12/curiosidade-veja-como-surgiu-a-numeracao-das-camisas-de-time), atualmente, a numeração da camisa é escolhida pelo gosto do jogador).
+
+```{r}
+
+fifa <- fifa %>% 
+  select(-c(id, club_number, national_number))
+
+```
+
+\newpage
+
+## Questão 2
+
+```{r}
+
+fifa.pca <- prcomp(fifa, center = TRUE, scale. = TRUE)
+
+
+summary(fifa.pca)$importance[,1:10]
+```
+
+`r kable(round(summary(fifa.pca)$importance[,1:10],3), caption="Sumário das 10 primeiras componentes principais", format = "latex", booktabs = TRUE) %>% kable_styling(full_width = TRUE,latex_options = "HOLD_position")%>% column_spec(1,width = "1.7in")`
+
+
+```{r}
+plot(fifa.pca,
+     main = "Variação Componentes Principal Fifa")
+
+ggsave("var_fifa_pca.png",
+       width = 7,
+       height = 6,
+       dpi=500)
+```
+
+
+De acordo com o `summary` da análise de componetes principais ,e o gráfico, a primeira componente principal (PC1) explica a maior parte dos dados, sendo responsável por aproximadamente 72% da variação. Dessa forma, a escolha da primeira e da segunda componente (PC2) são suficientes para prosseguir com a análise, dados que a inclusão da PC2 acrescentou apenas 5% na proporção de variação dos dados.
+
+Para continuar a análise iremos verificar como fica a dispersão dos dados para essas duas componentes:
+
+```{r}
+
+autoplot(fifa.pca)
+
+ggsave("fifa_pca.png",
+       width = 6,
+       height = 7,
+       dpi=500)
+
+```
+
+Verificando o gráfico de dispersão das componentes, é possível perceber claramento dois grupos distintos. A seguir iremos incluir os vetores das variáveis responsáveis pela formação desses grupos para verificar se é possível identificar de forma visual quais variável exercem maior influência na formação dessas componentes:
+
+```{r}
+
+autoplot(fifa.pca, loadings.label = TRUE)
+
+ggsave("fifa_pca_loadings.png",
+       width = 6,
+       height = 7,
+       dpi=500)
+
+```
+
+Apesar de não ser possível confirmar a grafia dos nomes devido a sobreposição (*o que já era esperado dado a quantidade de variáveis em análise*), é possível supor que o grupo a direita, e formado pelas variáveis influentes na PC1, é de goleiros, pois, entre as características físicas adequadas a um goleiro apontadas por [Csanádi (apud Scopel, Andrade e Levandowski, 2006)](https://www.scielo.br/j/pcp/a/bNQXvRdwSk5dd5WHbJqJJqd/?lang=pt#), estão a estatura (entre 1,75 e 1,90m) e peso proporcional à altura, que no nosso conjunto de dado são apresentadas em duas variáveis (`height` e `weight`) que estão presente positivamente na PC1.
+
+
+## Questão 3
+
+```{r}
+
+fifa.scale <- scale(fifa)
+
+fviz_nbclust(fifa.scale, kmeans, method="wss")
+
+ggsave("number_clusters_cotovelo.png",
+       width = 7,
+       height = 6,
+       dpi=500)
+
+```
+
+De acordo com o método do cotovelo seria necessário dois clusters para dividir os grupos, pois é quando percebemos uma mudança na curvatura, indicando que a partir dali há perda de acurácia na formação dos clusteres. 
+
+```{r}
+fviz_nbclust(fifa.scale, kmeans, method = "silhouette")
+
+ggsave("number_clusters_silhouette.png",
+       width = 7,
+       height = 6,
+       dpi=500)
+```
+
+Já de acordo com o método da silhueta, dois clusteres também seriam suficientes para dividir os grupos, mas seria possível a divisão em 5 clusters de forma parcialmente distinta. 
+
+Mas, levando em consideração a quantidade ótima de clusteres do método da silhueta, teriamos dois clusteres, assim como no cotovelo e, concomitantemente, duas posições.
+
+## Questão 4
+
+Verificando graficamente as opções de clusters para as quantidades iguais e maiores do que 2, temos:
+
+```{r}
+
+set.seed(102)
+autoplot(kmeans(fifa.scale,2), data = fifa.scale)+
+  labs(title = "Gráfico de Análise de Componentes Principais",
+       subtitle = "Com 2 clusters")
+
+ggsave("2_clusters_PCA.png",
+       width = 7,
+       height = 7,
+       dpi=500)
+
+
+set.seed(102)
+autoplot(kmeans(fifa.scale,3), data = fifa.scale)+
+  labs(title = "Gráfico de Análise de Componentes Principais",
+       subtitle = "Com 3 clusters")
+
+ggsave("3_clusters_PCA.png",
+       width = 7,
+       height = 7,
+       dpi=500)
+
+```
+
+Com 3 clusteres a conclusão referente a posição de goleiro é questionável, pois, o cluster da direita definido como sendo de goleiros, a partir dos `loadings` vistos na questão 2, agora apresenta dois clusteres, o que poderia significar que esse cluster poderia ser de goleiros e defesas, para o caso dessas posições terem características semelhantes. 
+
+```{r}
+
+set.seed(102)
+autoplot(kmeans(fifa.scale,4), data = fifa.scale)+
+  labs(title = "Gráfico de Análise de Componentes Principais",
+       subtitle = "Com 4 clusters")
+
+ggsave("4_clusters_PCA.png",
+       width = 7,
+       height = 7,
+       dpi=500)
+
+set.seed(102)
+autoplot(kmeans(fifa.scale,5), data = fifa.scale)+
+  labs(title = "Gráfico de Análise de Componentes Principais",
+       subtitle = "Com 5 clusters")
+
+ggsave("5_clusters_PCA.png",
+       width = 7,
+       height = 7,
+       dpi=500)
+
+```
+
+A partir de 4 clusteres já temos um resultado parecido com o de dois clusteres, em que o grupo da direita pode ser constituido exclusivamente pelos goleiros e a diferença estaria no grupo da esquerda, no qual as demais posições se encaixariam. 
+
+Algumas suposições que podemos levantar:
+
+* esses clusteres podem estar sendo influenciados pelas habilidades da posição de goleiro, já que, assim como em 4 clusteres, com 5 clusteres o grupo da direita continua sendo homogêneo, mas o grupo da esquerda é heterogêneo. 
+
+* já que com mais clusteres perde-se acurácia na separação, incluir mais clusteres misturam as habilidades de acordo com as carecterísticas das variáveis, de forma que os goleiros passam a formar grupos específicos com relação as caracteristicas dos não-goleiros e os não-goleiros passam a ser vistos de forma homogenea com relação as características dos goleiros (e por isso eles ficam em grupos distinto). 
+
+Em outras palavras, a medida que aumenta-se a quantidade de clusters, o algoritmo de classificação busca dentro dos grupos as similaridades entre as variáveis que formam os grupos, até que chega em um ponto que a similaridade entre o grupo da esquerda (*o grupo de não goleiros*) é a ausência das habilidades de goleiro. 
+
+## Questão 5
+
+De acordo com os números de clusteres sugeridos pelos métodos do cotovelo e da silhueta (*dois clusteres*) iremos estabelecer suposições a respeito de duas posições dos jogadores.
+
+Dessa forma, é possível perceber no conjunto de dados que as variáveis relacionadas às habilidades do goleiro tem como mediana o valor 16, conforme pode ser observado abaixo:
+
+```{r}
+
+sumario_gk <- summary(fifa[,33:37])
+
+```
+
+`r kable(sumario_gk,caption="Sumário das habilidades de goleiros",format = "latex", booktabs = TRUE) %>%  kable_styling("striped", full_width = FALSE, latex_options = "HOLD_position", row_label_position='c', position='center')` 
+
+Assim, espera-se que os goleiros sejam aqueles que apresentem valor maior que 16 nas variáveis acima. Para averiguar a suposição, escolhemos ao acaso a variável de posição (`gk_position`) para definir o grupo, por supor que seria a variável com menor possibilidade de erro.
+
+Com relação ao segundo grupo, o grupo localizado a esquerda, é interessante perceber a partir dos `loadings` na questão 2 que as variáveis que influenciam positivamente a formação da componente 2 (PC2) são as variáveis de: balanço (`balance`), agilidade (`agility`) e um pouco por aceleração (`acceleration`), arrancada (`sprint`) e velocidade(`speed`), além dessas, negativamente teríamos a força (`strength`) constituindo essa componente (assim como na PC1). 
+
+Baseado nessas características da PC2, podemos definir que o grupo da esquerda é composto pela posição de meio-campo, pois, assim como define [FC Futebol](http://fcfutebol.com/index.php/2016/01/12/caracteristicas-fisicas-no-futebol/), a força é uma característica marcante para a posição de atacante e defesa e como nesses grupos a presença da força não está correlacionada, podemos considerar que essa habilidade não está presente e portanto essas posições também não. No entanto, já que para a posição de meio-campo exige-se agilidade, podemos dizer que o grupo no cluster a esquerda é do meio-campo.
+
+```{r}
+set.seed(102)
+fifa.kmeans <- kmeans(fifa.scale, centers = 2)
+
+fifa.plot <- data.frame(fifa,
+                        fifa.pca$x[,1:2],
+                        Posicao=as.character(ifelse(fifa$gk_positioning>16,
+                                                    "Goleiro",
+                                                    "Meio-Campo")), 
+                        Cluster=as.character(fifa.kmeans$cluster))
+
+head(fifa.plot)
+
+```
+
+`r kable(fifa.plot[sample(nrow(fifa.plot),6),35:ncol(fifa.plot)],caption="Exemplo tabela com os clusteres e as posições" ,format = "latex", booktabs = TRUE)%>%  kable_styling("striped", full_width = FALSE, latex_options = "HOLD_position", row_label_position='c', position='center')`
+
+```{r, fig.height=7, fig.width=8}
+ggplot(fifa.plot, aes(x=PC1, y=PC2))+
+  geom_point(aes(shape=as.factor(Posicao),colour=Cluster), size=3, alpha=.75)+
+  scale_shape_manual("Posição",values = c(71,77))+
+  labs(x="PC1 (72,35%)", y="PC2 (5,41%)",
+       title="Gráfico de PCA, Clusteres e Posições")
+
+ggsave("clusters_PCA_posicao.png",
+       width = 7,
+       height = 7,
+       dpi=500)
+
+```
+
+Calculando a média das variáveis por posição temos:
+
+```{r}
+
+medias.posicoes <- fifa.plot %>% 
+  group_by(Posicao) %>% 
+  summarise_all(list(mean))
+
+```
+
+`r kable(t(medias.posicoes[,1:37]), caption = "Valores médio das habilidades por posição", align = "c", format = "latex", booktabs = TRUE)%>%  kable_styling(full_width = FALSE,latex_options = "HOLD_position")`
+
+
+\newpage 
+
+
+# Parte 2 - Webscraping
+
+
+## Questão 6
+
+```{r}
+url <- "https://en.wikipedia.org/wiki/List_of_countries_and_dependencies_by_population"
+
+pagina <- url %>%
+  read_html()
+
+pagina <- pagina %>%
+  html_table(fill = TRUE)
+
+tabela_atual<- pagina[[1]] %>% 
+  select(`Country or dependent territory`,Region,Population) %>% 
+  rename("pais"="Country or dependent territory",
+         "regiao"="Region",
+         "populacao"="Population") 
+
+tabela_atual <- tabela_atual[-1,]
+
+tabela_atual$populacao <-as.numeric(str_replace_all(tabela_atual$populacao, "\\,", ""))
+
+head(tabela_atual)
+```
+
+`r kable(head(tabela_atual),format = "latex", booktabs = TRUE, caption="Observações iniciais dados mais recentes")%>%  kable_styling("striped", full_width = FALSE, latex_options = "HOLD_position", row_label_position='c', position='center')`
+
+```{r}
+summary(tabela_atual)
+```
+
+`r kable(summary(tabela_atual),format = "latex", booktabs = TRUE, caption="Sumário dos dados mais recentes")%>%  kable_styling("striped", full_width = FALSE, latex_options = "HOLD_position", row_label_position='c', position='center')`
+
+## Questão 7
+
+```{r}
+url <- "https://en.wikipedia.org/wiki/List_of_countries_by_population_in_2015"
+
+pagina <- url %>%
+  read_html()
+
+pagina <- pagina %>%
+  html_table(fill = TRUE)
+
+tabela_2015<- pagina[[2]] %>% 
+  select(`Country / territory`,`Area (km²)[1]`,`Population2015(UN estimate)`) %>% 
+  rename("pais"="Country / territory",
+         "area"="Area (km²)[1]",
+         "populacao"="Population2015(UN estimate)")%>% 
+  mutate(pais = as.character(str_replace_all(pais, "\\[.*\\]", ""))) %>% 
+  mutate(area = as.numeric(str_replace_all(area, "\\,", "")) ) %>% 
+  mutate(populacao = as.numeric(str_replace_all(populacao, "\\,", "")) ) 
+
+tabela_2015 <- tabela_2015[-c(1,200),]
+
+head(tabela_2015)
+
+```
+
+`r kable(head(tabela_2015),format = "latex", booktabs = TRUE, caption="Observações iniciais dados de 2015")%>%  kable_styling("striped", full_width = FALSE, latex_options = "HOLD_position", row_label_position='c', position='center')`
+
+```{r}
+summary(tabela_2015)
+```
+
+`r kable(summary(tabela_2015),format = "latex", booktabs = TRUE, caption="Sumário dados de 2015")%>%  kable_styling("striped", full_width = FALSE, latex_options = "HOLD_position", row_label_position='c', position='center')`
+
+## Questão 8
+
+```{r}
+tabela_final <- inner_join(tabela_2015,tabela_atual,by="pais", suffix=c(".2015",".atual"))
+
+head(tabela_final)
+```
+
+`r kable(head(tabela_final),format = "latex", booktabs = TRUE, caption="Observações iniciais tabela final")%>%  kable_styling("striped", full_width = FALSE, latex_options = "HOLD_position", row_label_position='c', position='center')`
+
+```{r}
+summary(tabela_final)
+```
+
+`r kable(summary(tabela_final),format = "latex", booktabs = TRUE, caption="Sumário dados tabela final")%>%  kable_styling("striped", full_width = FALSE, latex_options = "HOLD_position", row_label_position='c', position='center')`
+
+## Questão 9
+
+```{r, results=TRUE, fig.height=8.5}
+
+tabela_final_plot <- as.data.frame(tabela_final %>% 
+                                     group_by(regiao) %>% 
+                                     summarise(`2015`=sum(populacao.2015),
+                                               `Atual`=sum(populacao.atual),
+                                               area=sum(area,na.rm = TRUE))) 
+
+tabela_final_plot %>% 
+  GGally::ggparcoord(columns = 2:3,
+                     groupColumn = "regiao",
+                     scale = "globalminmax",
+                     showPoints = TRUE,
+                     title = "Evolução da População nas Regiões")+
+  geom_line(size=1.5)+
+  ggrepel::geom_text_repel(data= . %>% 
+                             filter(variable=="Atual"),
+                           aes(x=variable, y=value, label=regiao),
+                           xlim = c(2, NA))+
+  scale_y_continuous(limits=c(-1e8,5e9), breaks=seq(0,5e9,1.5e9),
+                     labels = scales::dollar_format(prefix = "",
+                                                    suffix=" Bilhões",
+                                                    scale = 1/1e9, 
+                                                    decimal.mark = ",",
+                                                    big.mark = ".",
+                                                    accuracy=1.5))+
+  labs(y="Quantidade da População", 
+       x="Ano de referência",
+       subtitle = "Eurásia é uma região encontrada entre a Europa e a Ásia, formado pelos países:Armênia,
+    \nAzerbaijão, Cazaquistão,Chipre, Geórgia, Rússia e Turquia. Neste conjunto de dados
+    \ntemos a presença apenas da Rússia,o maior país transcontinental do mundo!
+    \nA Rússia sozinha possui uma população maior que a Oceania que é formada por 14 países 
+    \n(dos quais 10 estão presentes nesse conjunto de dados).")+
+  annotate("text",
+           x=.65, 
+           y=143456918,
+           vjust=1.25, 
+           label="A população na Rússia\n em 2015 era de\n 143.456.918",
+           color="deepskyblue2",
+           size=2.5)+
+  geom_curve(x=.65,xend=1,
+             y=143456918+999999, yend=143456918,
+             curvature = -.45,
+             color="deepskyblue2",
+             arrow = arrow(length = unit(0.03, 'npc')),
+             size=.2)+
+  annotate("text",
+           x=2.35, 
+           y=2e9,
+           vjust=1.25,
+           label="Atualmente a Rússia\npossui uma população de\n 146.171.015,00",
+           color="deepskyblue2", 
+           size=2.5)+
+  geom_curve(x=2,xend=2.35,
+             y=143456918+999999, yend=1.55e9,
+             curvature = .85,
+             color="deepskyblue2",
+             arrow = arrow(length = unit(0.03, 'npc')),
+             size=.2)+
+  theme(legend.position = "none",
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.y = element_blank())
+
+ggsave("evolucao_pop_regioes.png",
+       width = 7,
+       height = 7,
+       dpi=500)
+
+```
+
+
+```{r, results=TRUE, fig.height=6, fig.width=9}
+
+tabela_final_plot%>%
+  select(regiao, `2015`,Atual) %>% 
+  pivot_longer(!regiao,names_to = "ano",values_to = "populacao") %>%
+  arrange(populacao) %>% 
+  ggplot()+
+  geom_col(aes(x=fct_inorder(regiao), y=populacao, fill=factor(ano)),position = "dodge")+
+  theme(legend.position = "top",
+        legend.justification = "center",
+        axis.title.y.right = element_text(angle = 0,vjust = 1),
+        axis.title.x.bottom = element_text(hjust = 0))+
+  labs(title = "Evolução da população por área",
+       subtitle = "A região da Europa é quase 7 vezes menor que a área das Américas,
+       \nmas atualmente seu número de habitantes representa quase metade da população das Américas",
+           color="dodgerblue4",
+       x="Região (o tamanho dos círculos representa a dimensão da área)",
+       y="Quantidade\n População",
+       fill="Ano")+
+  scale_fill_manual(values=c("cornflowerblue","dodgerblue4"))+
+  scale_y_continuous(limits=c(-2.2e9,5e9), breaks=seq(0,5e9,1.5e9),
+                     labels = scales::dollar_format(prefix = "",
+                                                    suffix=" Bilhões",
+                                                    scale = 1/1e9, 
+                                                    decimal.mark = ",",
+                                                    big.mark = ".",
+                                                    accuracy=1.5),
+                     position = "right")+
+  geom_point(data=tabela_final_plot,aes(x=regiao,                    y=-1.65e9,size=area),
+             alpha=0.75, color="darkkhaki", show.legend = FALSE) +
+  scale_size(range = c(2, 20), name="Area (km²)")+
+  annotate("text",x=3, y=-2e8,vjust=.8,
+           label="5.904.512\nkm²", color="darkkhaki", size=2)+
+  annotate("text",x=4, y=-2e8,vjust=.8,
+           label="39.652.906\nkm²", color="darkkhaki", size=2)+
+  annotate("text",x=3, y=7e8,vjust=-.2, hjust=-.1,
+           label="597.791.288\nhabitantes", color="dodgerblue4", size=2)+
+  annotate("text",x=4, y=1.2e9,vjust=-.05, hjust=-.05,
+           label="1.019.902.827\nhabitantes", color="dodgerblue4", size=2)+
+  ggExtra::removeGrid()
+
+ggsave("evolucao_pop_regioes_area.png",
+       width = 7,
+       height = 7,
+       dpi=500)
+
+
+```
+
+
+De forma geral, é nítido que a Ásia se destaca com relação a quantidade de população (sendo a região mais populosa), dado que sua área é similar a da África e menor que a das Americas. 
+
+Além disso, África e Ásia foram as regiões que apresentaram maior crescimento populacional em número absoluto comparando com as outras regiões, sendo que elas aparentam ter a mesma área, mas a Ásia apresententa quase o triplo de habitantes da África. 
+
+## Questão 10
+
+```{r}
+
+variacao_pop <- tabela_final %>% 
+  select(-area) %>%
+  group_by(regiao) %>%
+  mutate(diferenca = round(100*(populacao.atual - populacao.2015)/populacao.2015,2)) %>% 
+  mutate(media_regiao=mean(diferenca)) %>%
+  arrange(-diferenca) %>% 
+  arrange(-media_regiao)
+
+names(variacao_pop) <- c("País", "2015","Região","Atual","Diferença","Var. Média na Região")
+
+variacao_pop <- variacao_pop %>% 
+  gt() %>% 
+  fmt_percent(columns = 5:6, scale_values = FALSE,decimals = 2)
+
+```
+
+A tabela abaixo apresenta a África como a região com maior média de variação percentual entre seus países (média de 26,04%), seguida da: Ásia (17,14%), Oceania (16,30%), Americas (10,08%), Eurasia (1,89%) e Europa (-0,36%). Observa-se ainda que as duas últimas praticamente não tiveram variação populacional de 2015 à atualidade.
+
+
+`r variacao_pop`
