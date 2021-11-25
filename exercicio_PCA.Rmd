@@ -1,0 +1,186 @@
+---
+title: "Exercícios PCA"
+author: "Jaylhane Nunes"
+date: "25/10/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(ggplot2)
+library(hrbrthemes)
+library(gridExtra)
+
+
+theme_set(theme_ipsum())
+```
+
+# Exercícios PCA
+
+## Carregando os dados 
+```{r }
+data(iris)
+
+head(iris)
+```
+
+1. Refaça a PCA do conjunto de dados iris, mas escolha três combinações de componentes principais diferentes de PC1 e PC2 para construir seu gráfico. O que é possível perceber?
+
+```{r }
+
+iris.pca <- prcomp(iris[,-5], center = TRUE, scale. = TRUE)
+
+summary(iris.pca)
+
+plot(iris.pca)
+
+iris.transformado <- data.frame(iris.pca$x,iris$Species)
+
+head(iris.transformado)
+
+pca01 <- ggplot(iris.transformado, aes(x=PC1, y=PC2)) +
+  geom_point(aes(colour=iris.Species)) +
+  labs(colour="Especies")
+
+pca02 <- ggplot(iris.transformado, aes(x=PC1, y=PC3)) +
+  geom_point(aes(colour=iris.Species)) +
+  labs(colour="Especies")
+
+pca03 <- ggplot(iris.transformado, aes(x=PC1, y=PC4)) +
+  geom_point(aes(colour=iris.Species)) +
+  labs(colour="Especies")
+
+pca04 <- ggplot(iris.transformado, aes(x=PC2, y=PC3)) +
+  geom_point(aes(colour=iris.Species)) +
+  labs(colour="Especies")
+
+grid.arrange(pca01, pca02, pca03, pca04)
+
+```
+
+**É possível perceber que a distribuição dos pontos muda de acordo com a escolha das pessoas, ficando as vezes mais concentradas e as vezes mais dispersas**
+
+2. Aplique a função *autoplot* do pacote *ggfortify* na PCA do conjunto iris e interprete o resultado
+
+```{r }
+
+library(ggfortify)
+
+autoplot(iris.pca, loadings = TRUE, loadings.label = TRUE,data = iris, colour="Species")
+
+```
+
+**De acordo com o gráfico podemos verificar que a PC1 explica aproximadamente 73% dos dados e as variáveis que mais explicam a PC1 são as variáveis `Pental.Length`, `Pental.Width` e um `Sepal.Length`, ainda que essa ultima tenha menos impacto que as outras duas e a variável `Sepal.Width` praticamente não impacta na composição dessa componente, no entanto, a PC2 é fortemente impactada por essa variável e pouco pela `Sepal.Length`e praticamente nada pelas outras duas variáveis, além disso a PC2 explica aproximadamente, 23% dos dados, de forma que essas duas variáveis juntas explicam em torno de 96% da variação dos dados.**
+
+**Além disso, é possível observar que a espécie setosa é mais influênciada pela `Sepal.Width` do que as demais espécies**
+
+3. Utilize o nome das espécies para identificar cada ponto no gráfico de dispersão das duas primeiras componentes principais
+
+```{r }
+
+ggplot(iris.transformado, aes(x=PC1, y=PC2)) +
+  geom_point(aes(colour=iris.Species)) +
+  geom_text(aes(label=iris.Species, colour=iris.Species)) +
+  labs(colour="Especies")
+
+```
+
+4. O arquivo *AlimentacaoReinoUnido.txt* mostra o consumo de diversos alimentos no Reino Unido em 1997. Importe este conjunto de dados para o R.
+```{r }
+AlimentacaoReinoUnido <- read.table(file="G:/Meu Drive/Graduacao Estatistica/2021.2/Intro a BigData/introbigdata_material/aulas/02_Analise_de_Componentes_Principais/AlimentacaoReinoUnido.txt",sep="\t", header=TRUE, encoding = "UTF-8")
+head(AlimentacaoReinoUnido)
+```
+
+5. Faça a PCA deste conjunto de dados.
+```{r }
+AlimentacaoReinoUnido.pca <- prcomp(AlimentacaoReinoUnido[,-1], center = TRUE, scale. = TRUE)
+
+summary(AlimentacaoReinoUnido.pca)
+```
+
+6. Quantas componentes principais são necessárias para que 95% da variância seja explicada?
+
+**Apenas uma, pois a PC1 sozinha explica aproximadamente 97% dos dados**
+
+7. Faça o gráfico de barras das contribuições das variâncias para confirmar sua resposta para o item anterior.
+
+```{r }
+plot(AlimentacaoReinoUnido.pca)
+```
+
+8. Faça um gráfico de dispersão com as duas primeiras componentes principais, identificando cada alimento por seu nome. O que é possível perceber?
+
+```{r }
+AlimentacaoReinoUnido.transformado <- data.frame(AlimentacaoReinoUnido.pca$x, AlimentacaoReinoUnido$Alimento)
+
+head(AlimentacaoReinoUnido.transformado)
+
+ggplot(AlimentacaoReinoUnido.transformado, aes(x=PC1, y=PC2))+
+  geom_point()+
+  geom_text(aes(y=PC2+0.035,label=AlimentacaoReinoUnido.Alimento), 
+            alpha=0.7, 
+            angle=-15, 
+            check_overlap = FALSE)
+```
+
+9. Explique o que ocorre quando utilizamos o comando *autoplot* do pacote *ggfortify* para analisar a PCA.
+
+```{r}
+autoplot(AlimentacaoReinoUnido.pca, data=AlimentacaoReinoUnido, loadings=TRUE, loadings.label=TRUE)
+```
+
+**Com o gráfico autoplot conseguimos visualizar a influência das variáveis originais na formação das componentes principais.**
+
+**No caso do gráfico de alimentação do Reino Unido, podemos observar que existe uma correlação super alta entre a alimentação dos países da Escócia, Inglaterra e País de Gales, enquanto que a Irlanda do Norte não apresenta uma correlação tão significativa com esses países**
+
+10. Refaça a análise para o conjunto de dados presente no arquivo *AlimentacaoReinoUnido.txt*, mas utilize a transposta da matriz original de dados. O que mudou? O que é possível perceber com esta nova análise?
+
+### Transpondo e Organizando o conjunto de dados
+
+```{r }
+
+alim.UK.transposta <- data.frame(t(AlimentacaoReinoUnido))
+
+nomes <- matrix(alim.UK.transposta[1,], nrow = 1)
+
+names(alim.UK.transposta) <- nomes
+
+alim.UK.transposta <- alim.UK.transposta[-1,]
+
+rm(nomes)
+
+alim.UK.transposta <- alim.UK.transposta %>% 
+  mutate_if(is.character,as.numeric)
+
+View(alim.UK.transposta)
+
+```
+
+### Realizando a PCA
+
+```{r }
+
+alim.UK.transposta.pca <- prcomp(alim.UK.transposta, center = TRUE, scale. = TRUE)
+
+summary(alim.UK.transposta.pca)
+
+```
+
+### Analisando graficamente a PCA
+
+```{r }
+
+plot(alim.UK.transposta.pca)
+
+?autoplot
+autoplot(alim.UK.transposta.pca, data= alim.UK.transposta, 
+         loadings= TRUE, loadings.label=TRUE)+
+  geom_text(aes(label=row.names(alim.UK.transposta)))
+
+```
+
+**Mudou que agora estamos analisando como os países se organizam de acordo com as componentes e suas respectivas variáveis, e o que podemos verificar é que cada país tem um comportamento distinto de acordo com cada CP.**
+
+**Além disso, é possível observar alguns comportamento curiosos, como por exemplo, Carne Fresca está altamente correlacionado negativamente com outras carnes**
