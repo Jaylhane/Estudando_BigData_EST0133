@@ -1,0 +1,143 @@
+---
+title: "EST0133 - INTRODUÇÃO À MODELAGEM DE BIG DATA"
+author: "Jaylhane Nunes"
+date: "24/02/2022"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+header-includes:
+- \usepackage[portuguese]{babel}
+- \usepackage{float}
+- \floatplacement{figure}{H}
+- \usepackage{indentfirst}
+- \setlength\parindent{22pt}
+subtitle: Projeto II
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      warning = FALSE,
+                      message = FALSE,
+                      results = FALSE,
+                      cache = TRUE,
+                      dev = "png", 
+                      dpi = 500,
+                      fig.height = 3.5,
+                      fig.pos="h")
+options(knitr.kable.NA = '',
+        digits = 2)
+```
+
+```{r librarys}
+library(tidyverse)
+library(tidymodels)
+library(hrbrthemes)
+library(GGally)
+library(gridExtra)
+library(grid)
+```
+
+```{r theme_set, echo=FALSE}
+theme_set(theme_ipsum()+
+            theme(
+              axis.title.y = element_text(size = 10),
+              axis.title.x = element_text(size = 10),
+              plot.title = element_text(size=12),
+              plot.subtitle = element_text(size=10),
+              panel.grid.minor.y = element_blank(),
+              panel.grid.minor.x = element_blank()
+            )
+)
+```
+
+# Parte I - Classificação
+
+## Questão 1
+
+```{r}
+coracao <- read.csv("./Projeto_II/dados/ataques_cardiacos.csv", encoding = "UTF-8") %>% 
+  mutate(morte=ifelse(morte=="sim",1,0)) %>% 
+  mutate_if(is.character,as.factor)
+```
+
+## Questão 2
+
+```{r}
+set.seed(1201, kind= "Mersenne-Twister", normal.kind = "Inversion")
+
+(coracao_split <- initial_split( coracao, prop = .78))
+
+coracao_treino <- training(coracao_split)
+nrow(coracao_treino)/nrow(coracao)
+
+coracao_teste <- testing(coracao_split)
+nrow(coracao_teste)/nrow(coracao)
+
+```
+
+## Questão 3
+
+```{r}
+coracao_treino %>% 
+  select_if(is.numeric) %>% 
+  ggpairs(title = "Gráficos de Dispersão e Correlação de Spearman",
+    upper = list(continuous=wrap("cor",method="spearman")))
+```
+
+Levando em consideração que:
+
+$$H_0:$$ A correlação entre a $X_1$ e $X_2$ é zero;
+$$H_1:$$ A correlação é diferente de zero; 
+
+Dado que o teste de correlação de spearman rejeitou a hipótese nula a um nível de significância de 5%, temos alguns candidatos a multicolinearidade, sendo eles:
+
+* `creatinina_sangue` com `idade`,
+* `creatinina_sangue` com `fracao_ejecao`,
+* `cretainina_sangue` com `sodio`. 
+
+No entanto, ao observar o valor da correlação percebemos que os valores são baixos (menores do que 0,3), o que diminui a preocupação de multicolinearidade, mas é necessário atenção nesses pares, uma vez que não é interessante remover a `creatinina_sangue` do modelo, uma vez que a mesma também está correlacionada com a morte. 
+
+## Questão 4
+
+```{r}
+grafico_boxplot <- function(variavel){
+  coracao_treino %>% 
+    select_if(is.numeric)%>%
+    mutate(morte=as.factor(morte)) %>% 
+    ggplot(aes_string(x="morte", y=variavel))+
+    geom_boxplot()+
+    stat_summary(fun=mean, geom="point", shape=20, size=2, color="red", fill="red")+
+    labs(x="Morte")+
+    scale_x_discrete(breaks = c(0,1),
+                     labels = c("Não","Sim"))
+}
+
+nomes_vars_quantitativas <- 
+  coracao_treino %>% 
+  select_if(is.numeric) %>% 
+  names()
+
+graficos <- list()
+for (i in 1:(length(nomes_vars_quantitativas)-1)) {
+  graficos[[i]] <- grafico_boxplot(nomes_vars_quantitativas[i])
+}
+
+tg <- textGrob("Boxplot das Variáveis Quantitativas x Morte", gp = gpar(fontsize = 13, fontface = 'bold'))
+sg <- textGrob("O ponto vermelho representa a média", gp = gpar(fontsize = 10))
+margin <- unit(0.5, "line")
+grided <- grid.arrange(grobs = graficos, nrow = 2)
+grid.arrange(tg, sg, grided,
+                        heights = unit.c(grobHeight(tg) + 1.2*margin, 
+                                         grobHeight(sg) + margin, 
+                                         unit(1,"null")))
+```
+
+As variáveis que apresentam em seus gráficos diferença na variação e média no nível "Sim" são as melhores candidatas a variável preditora, pois se elas apresentam diferença nessas quantidades possivelmente estão relacionadas com a causa da morte 
+
+Dessa forma teriamos como variáveis preditora:
+
+* `idade`;
+* `fracao_ejecao`;
+* `creatinina_sangue`;
+* `sodio`.

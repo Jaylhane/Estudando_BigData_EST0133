@@ -20,12 +20,12 @@ knitr::opts_chunk$set(echo = TRUE,
                       warning = FALSE,
                       message = FALSE,
                       results = FALSE,
+                      cache = TRUE,
                       dev = "png", 
                       dpi = 500,
                       fig.height = 3.5,
                       fig.pos="h")
 options(knitr.kable.NA = '')
-
 ```
 
 ```{r librarys}
@@ -43,7 +43,6 @@ library(tidyverse)
 ```
 
 ```{r set_theme, echo=FALSE}
-
 theme_set(theme_ipsum()+
             theme(
               axis.title.y = element_text(size = 9),
@@ -52,7 +51,6 @@ theme_set(theme_ipsum()+
               plot.subtitle = element_text(size=10)
             )
 )
-
 ```
 
 # Parte 1 - Clusterização

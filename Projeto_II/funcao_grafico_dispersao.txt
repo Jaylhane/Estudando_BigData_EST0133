@@ -1,0 +1,15 @@
+grafico_dispersao <- function(variavel){
+  
+  ggplot(data=coracao_treino,aes(x=variavel, y=morte))+
+  geom_point()+
+  labs(y="Morte",
+       title = "Gráfico de Dispersão",
+       subtitle = paste0("Correlação de Spearman =",round(cor(variavel, coracao_treino$morte, method = "spearman"),4)))+
+  scale_y_continuous(breaks = c(0,1),
+                     labels = c("Não","Sim"),
+                     limits = c(-.5,1.5))+
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.major.y = element_blank())}
+
+grafico_dispersao(coracao_treino$idade)
+grafico_dispersao(coracao_treino$cpk,"Anemia")
