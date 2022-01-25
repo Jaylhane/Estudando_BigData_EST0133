@@ -32,14 +32,16 @@ options(knitr.kable.NA = '',
 ```{r librarys}
 library(tidyverse)
 library(tidymodels)
-library(hrbrthemes)
 library(GGally)
 library(gridExtra)
 library(grid)
+library(doParallel)
+library(onehot)
+library(vip)
 ```
 
-```{r theme_set, echo=FALSE}
-theme_set(theme_ipsum()+
+```{r theme_set}
+theme_set(theme_minimal()+
             theme(
               axis.title.y = element_text(size = 10),
               axis.title.x = element_text(size = 10),
@@ -51,19 +53,42 @@ theme_set(theme_ipsum()+
 )
 ```
 
+\newpage
+
 # Parte I - Classificação
+
+O arquivo `ataques_cardiacos.csv` traz informações a respeito de 299 pacientes que sofreram ataque cardíaco em algum momento de suas vidas. Eles foram acompanhados durante algum tempo e As colunas presentes são
+
+* `idade`: idade do paciente (anos)
+* `anemia`: se o paciente está anêmico ou não
+* `cpk`: nível da enzima CPK no sangue (µg/L)
+* `diabetes`: se o paciente possui diabetes
+* `fracao_ejecao`: percentual de sangue saindo do coração a cada batida
+* `pressao_alta`: se o paciente é hipertenso
+* `plaquetas`: quantidade de plaquetas no sangue (em milhares/mL)
+* `creatinina_sangue`: nível de creatinina no sangue (em mg/dL)
+* `sodio`: nível de sódio no sangue (em mEq/L)
+* `genero`: gênero do paciente
+* `fumante`: se o paciente é fumante
+* `morte`: evento de morte do paciente, isto é, se ele faleceu durante o acompanhamento médico
+
+Queremos criar um modelo preditivo para o evento de morte do paciente, baseando-nos nas outras variáveis do conjunto de dados.
 
 ## Questão 1
 
+(_05 pontos_) *O primeiro passo será preparar o conjunto de dados para análise. Para isso, crie um objeto chamado `coracao` com o conteúdo do arquivo `ataques_cardiacos.csv`. Transforme a coluna `morte` de modo que `sim` seja o nível de referência.*
+
 ```{r}
-coracao <- read.csv("./Projeto_II/dados/ataques_cardiacos.csv", encoding = "UTF-8") %>% 
+coracao <- read.csv("G:/Meu Drive/Graduacao Estatistica/2021.2/Intro a BigData/BigData/Projeto_II/dados/ataques_cardiacos.csv", encoding = "UTF-8") %>% 
   mutate(morte=ifelse(morte=="sim",1,0)) %>% 
   mutate_if(is.character,as.factor)
 ```
 
 ## Questão 2
 
-```{r}
+(_05 pontos_) *Utilize a semente 1201 para criar os conjuntos de treino e teste. O conjunto de treino deve ser criado com 78% das observações.*
+
+```{r, results=TRUE}
 set.seed(1201, kind= "Mersenne-Twister", normal.kind = "Inversion")
 
 (coracao_split <- initial_split( coracao, prop = .78))
@@ -78,17 +103,19 @@ nrow(coracao_teste)/nrow(coracao)
 
 ## Questão 3
 
-```{r}
+(_05 pontos_) *Crie gráficos de dispersão em duas dimensões entre todas as variáveis quantitativas do conjunto de dados de treino. Informe também o valor da correlação de Spearman entre estas variáveis. Existe alguma suspeita de multicolinearidade entre estas variáveis? Justifique.*
+
+```{r, fig.width=9, fig.height=7}
 coracao_treino %>% 
-  select_if(is.numeric) %>% 
+  select_if(is.numeric)%>% 
   ggpairs(title = "Gráficos de Dispersão e Correlação de Spearman",
     upper = list(continuous=wrap("cor",method="spearman")))
 ```
 
 Levando em consideração que:
 
-$$H_0:$$ A correlação entre a $X_1$ e $X_2$ é zero;
-$$H_1:$$ A correlação é diferente de zero; 
+* $H_0:$ A correlação entre a $X_1$ e $X_2$ é zero;
+* $H_1:$ A correlação é diferente de zero; 
 
 Dado que o teste de correlação de spearman rejeitou a hipótese nula a um nível de significância de 5%, temos alguns candidatos a multicolinearidade, sendo eles:
 
@@ -100,10 +127,13 @@ No entanto, ao observar o valor da correlação percebemos que os valores são b
 
 ## Questão 4
 
-```{r}
+(_05 pontos_) *Crie boxplots comparando os valores das variáveis preditoras quantitativas entre os níveis de `morte`. Alguma (ou mais de uma) variável quantitativa poderia ser considerada como uma boa preditora para discriminar entre os níveis de `morte`? Qual (ou quais) e por quê?*
+
+```{r, }
+
 grafico_boxplot <- function(variavel){
-  coracao_treino %>% 
-    select_if(is.numeric)%>%
+coracao_treino %>% 
+  select_if(is.numeric) %>%
     mutate(morte=as.factor(morte)) %>% 
     ggplot(aes_string(x="morte", y=variavel))+
     geom_boxplot()+
@@ -119,14 +149,21 @@ nomes_vars_quantitativas <-
   names()
 
 graficos <- list()
+
 for (i in 1:(length(nomes_vars_quantitativas)-1)) {
   graficos[[i]] <- grafico_boxplot(nomes_vars_quantitativas[i])
 }
 
-tg <- textGrob("Boxplot das Variáveis Quantitativas x Morte", gp = gpar(fontsize = 13, fontface = 'bold'))
-sg <- textGrob("O ponto vermelho representa a média", gp = gpar(fontsize = 10))
+
+library(grid)
+
+tg <- textGrob("Boxplot das Variáveis Quantitativas x Morte",
+                     gp = gpar(fontsize = 13, fontface = 'bold'))
+sg <- textGrob("O ponto vermelho representa a média",
+                     gp = gpar(fontsize = 10))
 margin <- unit(0.5, "line")
 grided <- grid.arrange(grobs = graficos, nrow = 2)
+
 grid.arrange(tg, sg, grided,
                         heights = unit.c(grobHeight(tg) + 1.2*margin, 
                                          grobHeight(sg) + margin, 
@@ -135,9 +172,626 @@ grid.arrange(tg, sg, grided,
 
 As variáveis que apresentam em seus gráficos diferença na variação e média no nível "Sim" são as melhores candidatas a variável preditora, pois se elas apresentam diferença nessas quantidades possivelmente estão relacionadas com a causa da morte 
 
-Dessa forma teriamos como variáveis preditora:
+Dessa forma, entre as variáveis quantitativas, teremos como variáveis preditora:
 
 * `idade`;
 * `fracao_ejecao`;
 * `creatinina_sangue`;
 * `sodio`.
+
+## Questão 5
+
+
+(_05 pontos_) *Pré-processe os dados com apenas 3 transformações:*
+
+i) *Balanceie o número de observações para cada classe da variável resposta;*
+
+ii) *Deixe a média das variáveis preditoras igual a zero;*
+
+iii) *Faça com que a variância das variáveis preditoras seja igual a um.*
+
+*Não é necessário realizar nenhum outro tipo de pré-processamento para essa análise. Aplique as transformações nos conjuntos de treino e teste.*
+
+
+
+Pensando nas variáveis preditoras, para gerar os conjuntos de treino e teste, não irei incluir as variáveis de `plaquetas` e `cpk`, pois elas não deram significativas na correlação e também apresentam a mesma média na análise visual do boxplot. No entanto, irei incluir as demais variáveis categóricas, pois elas podem ser importantes no modelo final de predição. 
+
+```{r}
+
+coracao_treino <- coracao_treino %>% 
+  mutate(morte=as.factor(morte)) %>% 
+  select(-plaquetas,
+         -cpk)
+
+coracao_teste <- coracao_teste %>% 
+  mutate(morte=as.factor(morte))%>% 
+  select(-plaquetas,
+         -cpk)
+
+coracao_rec <- 
+  recipe(morte~ .,
+         data = coracao_treino) %>% 
+  themis::step_downsample(morte) %>% 
+  step_center(where(is.numeric)) %>% 
+  step_scale(where(is.numeric)) %>% 
+  prep()
+
+coracao_treino_t <- juice(coracao_rec)
+
+coracao_teste_t <- bake(coracao_rec,
+                        new_data = coracao_teste)
+```
+
+## Questão 6
+
+(_05 pontos_) *Defina a validação cruzada com 6 grupos para avaliar o desempenho dos algoritmos que aplicaremos a esses dados. Utilize a semente 2022 para isso.*
+
+```{r}
+set.seed(2022, kind = "Mersenne-Twister", normal.kind = "Inversion")
+
+coracao_treino_cv <- vfold_cv(coracao_treino, v=6)
+  
+```
+
+## Questão 7
+
+(_05 pontos_) *Crie grids de procura para os hiperparâmetros dos métodos CART e Random Forest. Encontre o melhor valor de `cost_complexity` para o CART entre os valores $10^{-5}$ e $10^{-1}$, `tree_depth` entre 1 e 5 e `min_n` entre 10 e 100. Utilize 5, 5 e 10 valores diferentes, respectivamente, para cada um destes hiperparâmetros (ou seja, ajuste 250 modelos diferentes). Para o random forest, encontre o melhor valor de `mtry` 1 e o máximo permitido, `trees` entre 500 e 1000 e `min_n` entre 10 e 100. Utilize 4, 2 e 10 valores diferentes, respectivamente, para cada um destes hiperparâmetros (ou seja, ajuste 80 modelos diferentes).*
+
+* CART 
+
+```{r , results=TRUE}
+## grid de procura
+coracao_rpart_grid <- grid_regular(
+  cost_complexity(range(-5,-1)),
+  tree_depth(range(1,5)),
+  min_n(range(10,100)),
+  levels = c(5,5,10)
+)
+
+head(coracao_rpart_grid)
+
+## definição do tuning
+
+coracao_rpart_tune <- 
+  decision_tree(
+    cost_complexity = tune(),
+    tree_depth = tune(),
+    min_n = tune()
+  ) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+
+## workflow
+
+coracao_rpart_tune_wflow <- 
+  workflow() %>% 
+  add_model(coracao_rpart_tune) %>% 
+  add_formula(morte ~ .)
+
+## parallel para melhora computacional
+all_cores <- parallel::detectCores(logical = FALSE)
+
+cl <- makePSOCKcluster(all_cores)
+registerDoParallel(cl)
+
+# avaliação do modelo
+
+coracao_rpart_fit_tune <- 
+  coracao_rpart_tune_wflow %>% 
+  tune_grid(
+    resamples = coracao_treino_cv,
+    grid = coracao_rpart_grid
+  )
+
+parallel::stopCluster(cl)
+
+## melhores modelos
+coracao_rpart_fit_tune %>%
+ show_best("roc_auc")
+
+coracao_rpart_fit_tune %>%
+ show_best("accuracy")
+
+## melhor modelo
+
+coracao_rpart_best <-
+  coracao_rpart_fit_tune %>%
+  select_best("accuracy")
+
+```
+
+Para a seleção dos melhores hiperparamêtros do método CART estou considerando a acurácia pois apresentou erro padrão ligeiramente menor do que na curva ROC. Dessa forma, os melhores hiperparametros para o método CART são:
+
+i. `cost_complexity` : `r coracao_rpart_best[[1]]`
+ii. `tree_depth` : `r coracao_rpart_best[[2]]`
+iii. `min_n` : `r coracao_rpart_best[[3]]`
+
+* Random Forest
+
+```{r}
+## grid de procura
+
+coracao_rf_grid <- grid_regular(mtry(range(1,9)),
+                                trees(range(500,1000)),
+                                min_n(range(10,100)),
+                                levels = c(4,2,10))
+## definição do tuning
+
+coracao_rf_tune <- rand_forest(
+  mtry = tune(),
+  trees = tune(),
+  min_n = tune()
+) %>% 
+  set_mode("classification") %>% 
+  set_engine("ranger", importance = "impurity")
+
+# workflow
+
+coracao_rf_tune_wflow <- 
+  workflow() %>% 
+  add_model(coracao_rf_tune) %>% 
+  add_formula(morte ~ .)
+
+# avaliacao do modelo
+
+## parallel para melhora computacional
+all_cores <- parallel::detectCores(logical = FALSE)
+
+cl <- makePSOCKcluster(all_cores)
+registerDoParallel(cl)
+
+coracao_rf_fit_tune <-  coracao_rf_tune_wflow %>% 
+  tune_grid(
+    resamples = coracao_treino_cv,
+    grid = coracao_rf_grid
+  )
+
+parallel::stopCluster(cl)
+
+## melhores modelos
+coracao_rf_fit_tune %>%
+ show_best("roc_auc")
+
+coracao_rf_fit_tune %>%
+ show_best("accuracy")
+
+## melhor modelo
+
+coracao_rf_best <-
+  coracao_rf_fit_tune %>%
+  select_best("roc_auc")
+
+```
+
+Para a seleção dos melhores hiperparametros de RF, optei pelo método de curva roc (`roc_auc`), pois, o erro padrão entre os dois métodos é bem similar, mas a curva roc apresentou maior média para a seleção das variáveis que irão compor o modelo, dessa forma os melhores hiperparametros são:
+
+i. `mtry` : `r coracao_rf_best[[1]]`
+ii. `trees` : `r coracao_rf_best[[2]]`
+iii. `min_n` : `r coracao_rf_best[[3]]`
+
+## Questão 8
+
+(_05 pontos_) *Rode o ajuste dos modelos definidos anteriormente. A seguir, utilize os meios necessários para determinar se a acurácia e a área sob a curva dos ajustes com os algoritmos utilizados foram maximizadas em algum momento.*
+
+* CART 
+
+```{r, fig.height=7}
+## melhor modelo
+
+coracao_rpart_final <-
+  coracao_rpart_tune_wflow %>%
+  finalize_workflow(coracao_rpart_best)
+
+coracao_rpart_final <- fit(coracao_rpart_final,
+  coracao_treino_t)
+
+## resultados no conjunto de teste
+
+resultado_rpart <- coracao_teste_t %>% 
+  bind_cols(predict(coracao_rpart_final, coracao_teste_t) %>% 
+              rename(predicao_rpart = .pred_class))
+
+metrics(resultado_rpart,
+        truth = morte,
+        estimate = predicao_rpart,
+        options = "accuracy")
+
+## resultados
+
+collect_metrics(coracao_rpart_fit_tune)
+
+coracao_rpart_fit_tune %>%
+  collect_metrics() %>%
+  mutate(cost = cost_complexity,
+    depth = factor(tree_depth)) %>%
+  ggplot(., aes(x = cost, y = mean, colour = depth, group = depth)) +
+    geom_line() +
+    geom_point() +
+    facet_grid(min_n ~ .metric) +
+    scale_x_continuous(trans = "log10")
+
+conf_mat(resultado_rpart,
+         truth = morte,
+         estimate = predicao_rpart) %>% 
+  autoplot(type = "heatmap")+
+  ggtitle("Mapa de Calor - Predição do Método CART")
+
+(sens_cart <- sens(resultado_rpart,
+     truth = morte,
+     estimate = predicao_rpart))
+
+(spec_cart <- spec(resultado_rpart,
+     truth = morte,
+     estimate = predicao_rpart))
+
+# importancia das variaveis
+
+coracao_rpart_final %>% 
+  pull_workflow_fit() %>% 
+  vip(scale=TRUE)
+
+```
+
+* Random Forest 
+```{r}
+
+# melhor modelo
+
+coracao_rf_final <- coracao_rf_tune_wflow %>% 
+  finalize_workflow(coracao_rf_best)
+
+coracao_rf_final <- fit(coracao_rf_final,
+                        coracao_treino_t)
+
+# resultado no conjunto de teste
+
+resultado_rf <- coracao_teste_t %>% 
+  bind_cols(predict(coracao_rf_final,coracao_teste_t) %>% 
+              rename(predicao_rf = .pred_class))
+
+metrics(resultado_rf,
+        truth = morte,
+        estimate = predicao_rf,
+        options = "roc")
+
+## resultados 
+
+collect_metrics(coracao_rf_fit_tune)
+
+coracao_rf_fit_tune %>%
+ collect_metrics() %>%
+ mutate(min_n = factor(min_n)) %>%
+ ggplot(., aes(x = mtry, y = mean, colour = min_n, group = min_n)) +
+ geom_line() +
+ geom_point() +
+ facet_grid(~ .metric) +
+ scale_x_continuous(breaks = seq(1, 9, 2))
+
+conf_mat(resultado_rf,
+         truth = morte,
+         estimate = predicao_rf) %>% 
+  autoplot(type = "heatmap")+
+  ggtitle("Mapa de Calor - Predição do Método RF")
+
+(sens_rf <- sens(resultado_rf,
+     truth = morte,
+     estimate = predicao_rf))
+
+(spec_rf <- spec(resultado_rf,
+     truth = morte,
+     estimate = predicao_rf))
+
+# importancia das variaveis
+
+coracao_rf_final %>% 
+  pull_workflow_fit() %>% 
+  vip::vip(scale=TRUE)
+
+```
+
+## Questão 9
+
+(_05 pontos_) *Qual é a sua opção de algoritmo para modelar estes dados? Justifique a sua escolha.*
+
+
+
+Dado que estamos buscando um modelo capaz de predizer a morte para os dados e que os valores de sensibilidade e especificidade identificadas na questão 8 para RF são , respectivamente, `r round(sens_rf[3],2)` e `r round(spec_rf[3],2)`, e são em média maiores do que de CART, com `r round(sens_cart[3],2)` e `r round(spec_cart[3],2)`, portanto, eu escolheria o algoritmo de RF (Random Forest). 
+
+Acrescento que faria essa escolha também pois não há a informação se a morte e as causas do infarto estão relacionados, uma vez que os dados do estudo são provenientes de pacientes que já tiveram algum infarto durante a vida e que morreram durante o acompanhamento, mas não necessariamente do infarto, o que considero ser um indício de que a condição de predição da morte mantem-se naturalmente imprevisível, de formo que considero mais relevante ter uma boa medida de especificidade.
+
+## Questão 10
+
+(_05 pontos_) *Considerando métricas adequadas aplicadas nos conjuntos de treino e teste, o resultado obtido com a modelagem definitiva é bom o suficiente, na sua opinião? Cite alguma sugestão a ser aplicada nos dados ou na modelagem, que talvez pudesse melhorar o resultado obtido. Não é necessário implementar a sugestão, apenas comentá-la e justificá-la.*
+
+
+
+Dado as taxas de sensibilidade e especificidade identificadas na questão 8, não considero que o modelo escolhido seja bom o suficiente, dado que a verdadeira proporção de mortes e não-mortes identificadas é de `r sens_cart` e ``r spec_cart`, respectivamente, o que apresenta muita margem para predições equivocadas.  
+
+Acredito que dois procedimentos poderiam ser adotados para melhorar esses resultados:
+
+* Uma análise de sobrevivência, levando em consideração que o paciente morrer durante o acompanhamento não necessariamente significa que ele morreu em decorrência de diabetes, infarto, cancêr de pulmão, velhice, ou outras possíveis causas relacionadas ao dados;
+
+* Informar nos dados a causa da morte, pois talvez os modelos consigam predizer melhor a possibilidade de morte nos dados de acordo com a causa. 
+
+
+\newpage 
+
+# Parte II - Regressão
+
+O twitch é um serviço de _streaming_ de vídeos ao vivo. É bastante identificado com a comunidade de _esports_, embora possua canais especializados em diversas outras áreas de entretenimento. O arquivo `twitch.csv` possui informações sobre os 1000 canais mais populares em 2020, a saber:
+
+* `channel`: nome do canal
+* `watch_time_minutes`: somatório da quantidade total de minutos que o canal foi assistindo, considerando todos os usuários da plataforma
+* `stream_time_minutes`: quantidade de minutos que o canal ficou ao vivo durante o ano
+* `peak_viewers`: número máximo de espectadores simultâneos do canal
+* `average_viewers`: quantidade média de espectadores simultâneos do canal
+* `followers`: quantidade de seguidores do canal no final do ano
+* `followers_gained`: diferença entre a quantidade de seguidores do canal no final e no começo do ano
+* `views_gained`: visualizações ganhas pelo canal durante o ano
+* `mature`: variável indicando se o conteúdo do canal é para adultos
+* `language`: idioma principal do canal
+
+O objetivo desta tarefa é modelar a variável `followers_gained`, a fim de explicar que fatores são capazes de determinar o número de seguidores que um canal pode arregimentar em um ano.
+
+
+
+## Questão 11
+
+(_05 pontos_) *Importe para o R o conjunto de dados do problema. Retire a coluna com o nome do canal e recodifique a coluna `language`, mantendo apenas o nível `English` original e juntando todas as demais em `Other`.*
+
+```{r}
+
+twitch <- read.csv("G:/Meu Drive/Graduacao Estatistica/2021.2/Intro a BigData/BigData/Projeto_II/dados/twitch.csv", encoding = "UTF-8") %>% 
+  select(-channel) %>% 
+  mutate(language=ifelse(language=="English","English","Other"))  %>% 
+  mutate_if(is.character,factor)
+
+head(twitch)
+
+```
+
+
+## Questão 12
+
+(_05 pontos_) *Utilize a semente 2109 para criar os conjuntos de treino e teste. O conjunto de treino deve ser criado com 70% das observações.*
+
+```{r, results=TRUE}
+
+set.seed(2109, kind= "Mersenne-Twister", normal.kind = "Inversion")
+
+(twitch_split <- initial_split(twitch, prop = .70))
+
+twitch_treino <- training(twitch_split)
+nrow(twitch_treino)/nrow(twitch)
+
+twitch_teste <- testing(twitch_split)
+nrow(twitch_teste)/nrow(twitch)
+
+```
+
+
+## Questão 13
+
+*Crie gráficos de dispersão em duas dimensões entre todas as variáveis quantitativas do conjunto de dados de treino. Informe também o valor da correlação linear entre estas variáveis. Alguma correlação entre as variáveis preditoras e a variável resposta se destaca? Existem indícios de multicolinearidade? Justifique.*
+
+
+```{r, fig.height=7, fig.width=9}
+
+twitch_treino %>% 
+  select_if(is.numeric)%>% 
+  ggpairs(title = "Gráficos de Dispersão e Correlação de Pearson")
+
+```
+
+Há uma correlação significativa entre `followers` e `watch_time_minutes`, acima de 0,6, o que indica uma relação linear, no entanto, tal relação é esperada e intuitiva dado que é esperado que quanto mais seguidores o canal tenha, mais tempo assistindo a plataforma ele terá.
+
+Da mesma forma entre `followers` e `followers_gained`, dado que há uma correlação com um valor acima de 0,7. 
+
+Além disso, como `followers` também dá significativo com as demais variáveis quantitativas do conjunto, ainda que com valores mais baixos, reforça indícios de multicolinearidade dessa variável com as demais no modelo, dado que todas as variáveis se baseiam ou tem alguma relação com a quantidade de usuários, no entanto, no momento, não iremos remover essa variável para ajuste do modelo. 
+
+```{r, echo=FALSE}
+#twitch_treino <- twitch_treino %>% 
+#  select(-followers)
+
+#twitch_teste <- twitch_teste %>% 
+#  select(-followers)
+
+```
+
+## Questão 14
+
+(_05 pontos_) *Pré-processe os dados com apenas 4 transformações:*
+
+i) *Transforme as variáveis quantitativas (exceto a resposta) utilizando logaritmo;*
+
+ii) *Crie versões _dummy_ das variáveis qualitativas usando a função `step_dummy`*
+
+iii) *Deixe a média das variáveis preditoras igual a zero;*
+
+iv) *Faça com que a variância das variáveis preditoras seja igual a um.*
+
+*Não é necessário realizar nenhum outro tipo de pré-processamento para essa análise. Aplique as transformações nos conjuntos de treino e teste.*
+
+```{r}
+twitch_rec <- recipe(followers_gained ~ . , data = twitch_treino) %>%
+  step_dummy(all_nominal(), keep_original_cols = TRUE) %>% 
+  step_log(all_numeric(), -all_outcomes()) %>% 
+  step_normalize(all_numeric(), -all_outcomes()) %>%
+  prep(training= twitch_treino, retain = TRUE)
+
+twitch_treino_t <- juice(twitch_rec)
+
+head(twitch_treino_t)
+
+twitch_teste_t <- bake(twitch_rec, new_data = twitch_teste)
+
+head(twitch_teste_t)
+
+```
+
+_Obs.: Por algum motivo que não conseguiu identificar ou encontrar justificativas, a função `step_dummy` não funcionou, tentei mudar vários argumentos na função, mas não deu certo, dessa forma, mantive as colunas originais para substitui-las posteriormente_
+
+```{r }
+twitch_treino_t <- twitch_treino_t %>% 
+  mutate(mature_yes=ifelse(mature=="yes",1,0),
+         language_English=ifelse(language=="English",1,0)) %>% 
+  select(-mature,-language,-language_Other)
+
+twitch_teste_t <- twitch_teste_t %>% 
+  mutate(mature_yes=ifelse(mature=="yes",1,0),
+         language_English=ifelse(language=="English",1,0)) %>% 
+  select(-mature,-language,-language_Other)
+```
+
+## Questão 15
+
+(_05 pontos_) *Defina a validação cruzada com 5 grupos para avaliar o desempenho dos algoritmos que aplicaremos a esses dados. Utilize a semente 2220 para isso.*
+
+```{r}
+
+set.seed(2220, kind = "Mersenne-Twister", normal.kind = "Inversion")
+
+twitch_treino_cv <- vfold_cv(twitch_treino_t, v=5)
+
+```
+
+
+## Questão 16
+
+*Utilize funções do pacote `tidymodels` para ajustar um modelo de regressão linear múltipla aos dados que estamos analisando. Não é preciso realizar o tunning deste modelo.*
+
+```{r, results=TRUE}
+
+(glmn_fit <- linear_reg(penalty = .001, mixture = .5) %>% 
+  set_engine("glmnet") %>% 
+  fit(followers_gained ~., data=twitch_treino_t))
+
+```
+
+
+## Questão 17
+
+(_05 pontos_) *Utilize o random forest para ajustar um modelo a estes dados. Encontre o melhor valor de `mtry` 1 e o máximo permitido, `trees` entre 500 e 1000 e `min_n` entre 10 e 50. Utilize todos os valores possíveis, 2 e 5 valores diferentes, respectivamente, para cada um destes hiperparâmetros.* 
+
+```{r}
+
+# tuning
+
+twitch_rf_tune <- rand_forest(
+  mtry = tune(),
+  trees = tune(),
+  min_n = tune()
+) %>% 
+  set_mode("regression") %>% 
+  set_engine("ranger", importance = "impurity")
+
+# grid de procura
+
+twitch_rf_grid <- grid_regular(mtry(range(1,8)),
+                               trees(range(500,1000)),
+                               min_n(range(10,50)),
+                               levels = c(8,2,5))
+
+# workflow
+
+twitch_rf_tune_wflow <- workflow() %>% 
+  add_model(twitch_rf_tune) %>% 
+  add_formula(followers_gained ~ .)
+
+# avaliacao do modelo
+
+all_cores <- parallel::detectCores(logical = FALSE)
+cl <- makePSOCKcluster(all_cores)
+registerDoParallel(cl)
+
+twitch_rf_fit_tune <- twitch_rf_tune_wflow %>% 
+  tune_grid(
+    resamples = twitch_treino_cv,
+    grid = twitch_rf_grid
+  )
+
+parallel::stopCluster(cl)
+
+# melhor modelo
+
+twitch_rf_best <- twitch_rf_fit_tune %>% 
+  select_best("rmse")
+
+```
+
+De acordo com o melhor modelo selecionado visando o menor `rmse`, os hiperparametros do modelo são:
+
+i. `mtry` : `r twitch_rf_best[[1]]`
+ii. `trees` : `r twitch_rf_best[[2]]`
+iii. `min_n` : `r twitch_rf_best[[3]]`
+
+## Questão 18
+
+(_05 pontos_) *Compare os resultados obtidos (no conjunto de treino) entre a regressão linear e o modelo final obtido com random forest utilizando a raiz do erro quadrático médio como critério. Qual é a sua opção de modelagem para estes dados e por quê?*
+
+
+```{r}
+
+```
+
+_Obs.:  na questão 16 onde tem `data=twitch_teste_t`, deveria ser `data = bake(twitch_rec, new_data = NULL)` justamente para que fosse possível comparar os modelos, conforme orientação obtida no guia:  [Regression models two ways](https://www.tidymodels.org/learn/models/parsnip-ranger-glmnet/) , no entanto, como a minha "receita" não funcionou, não consegui realizar a questão 18, pois ao tentar fazer manualmente os erros persistiram._ 
+
+## Questão 19
+
+(_05 pontos_) *Segundo o random forest, qual é a variável mais importante para o modelo ajustado? Intuitivamente, esse resultado faz sentido? Justifique.*
+
+```{r}
+#melhor modelo
+
+twitch_rf_final <- twitch_rf_tune_wflow %>% 
+  finalize_workflow(twitch_rf_best)
+
+
+twitch_rf_final <- fit(twitch_rf_final,
+                       twitch_treino_t)
+
+# importancia das variaveis
+
+twitch_rf_final %>% 
+  pull_workflow_fit() %>% 
+  vip(scale=TRUE)
+
+```
+
+De acordo com o gráfico acima, a variável mais importante no modelo é a variável `followers`. 
+
+Conforme mencionado na questão 13, já era esperado que `followers` fosse ter essa importância no modelo, bem como era intuitivo esse comportamento, dado que as demais variáveis são definidas com base nessa variável . 
+
+## Questão 20
+
+(_05 pontos_) *Considerando o conjunto de teste, o resultado obtido com a melhor modelagem é bom o suficiente? Utilize argumentos numéricos e gráficos para justificar a sua resposta.*
+
+```{r}
+
+#resultados no conjunto de teste
+
+resultado_rf <- 
+  twitch_teste_t %>% 
+  bind_cols(predict(twitch_rf_final, twitch_teste_t)%>% 
+              rename(predicao_rf = .pred))
+
+(metricas <- metrics(resultado_rf,
+        truth = followers_gained,
+        estimate = predicao_rf,
+        options = "rmse"))
+
+resultado_rf %>% 
+  ggplot(aes(x=predicao_rf, y=followers_gained))+
+  geom_abline(col="green", lty=2)+
+  geom_point(alpha=.4)+
+  coord_fixed()+
+  labs(title = "Gráfico de ajuste dos valores preditos\n
+       pelos valores de followers_gained\n
+       transformados",
+       x = "Valores Preditos pelo RF")
+
+```
+
+De acordo com o valor de $R^2$ encontrado, `r metricas$.estimate[2]`, pode-se dizer que o modelo encontrado consegue explicar aproximadamente `r metricas$.estimate[2]*100` % da variabilidade da variável resposta. 
+
+Apesar desse valor ser satisfatório, dado que ele capta a tendência dos dados, ao verificarmos graficamente o comportamento desse ajuste, percebemos uma heterocedasticidade, pois há uma concentração dos dados próximo a origem e um espalhamento conforme os pontos preditos aumentam, sendo possível observar inclusive a presença de possíveis outliers. 
